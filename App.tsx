@@ -51,6 +51,17 @@ const NAV_LINKS = [
   { id: "contact", label: "Contact" },
 ];
 
+// Static JPG files are stored beside App.tsx in the repository root.
+// Vite bundles these through import.meta.glob so they also work on GitHub Pages.
+const IMAGE_ASSETS = import.meta.glob("./*.jpg", {
+  eager: true,
+  query: "?url",
+  import: "default",
+}) as Record<string, string>;
+
+const getImageAsset = (fileName: string) =>
+  IMAGE_ASSETS[`./${fileName}`] ?? `${import.meta.env.BASE_URL}${fileName}`;
+
 const STATS = [
   { value: "2028", label: "Expected Graduation" },
   { value: "3.24", label: "Latest Semester GPA" },
@@ -723,6 +734,9 @@ export default function App() {
   const [activeFilter, setActiveFilter] = useState<ProjectCategory>("all");
   const [scrolled, setScrolled] = useState(false);
   const [cppDocumentsOpen, setCppDocumentsOpen] = useState(false);
+  const [selectedCertificate, setSelectedCertificate] = useState<
+    (typeof CERTIFICATIONS)[number] | null
+  >(null);
 
   const sectionIds = NAV_LINKS.map((n) => n.id);
   const activeSection = useScrollSpy(sectionIds);
@@ -732,6 +746,21 @@ export default function App() {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelectedCertificate(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  useEffect(() => {
+    document.body.style.overflow = selectedCertificate ? "hidden" : "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [selectedCertificate]);
 
   const scrollTo = (id: string) => {
     const el = document.getElementById(id);
@@ -911,15 +940,17 @@ export default function App() {
                   <span className="absolute top-8 right-16 w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_14px_rgba(34,211,238,0.8)]" />
                   <span className="absolute bottom-10 left-14 w-1.5 h-1.5 rounded-full bg-violet-400 shadow-[0_0_12px_rgba(167,139,250,0.8)]" />
 
-                  {/* Profile image fallback — the imported archive did not include profile.jpg */}
+                  {/* Profile Picture */}
                   <div className="relative z-10 w-64 h-64 sm:w-80 sm:h-80 rounded-full p-1.5 bg-gradient-to-br from-cyan-400 via-violet-500 to-pink-500 shadow-[0_0_45px_rgba(6,182,212,0.25)]">
                     <div
-                      className="w-full h-full rounded-full overflow-hidden border border-white/10 bg-[#050d1a] flex items-center justify-center"
-                      aria-label="Antton Mikhael profile image placeholder"
+                      className="w-full h-full rounded-full overflow-hidden border border-white/10 bg-[#050d1a]"
+                      aria-label="Antton Mikhael profile picture"
                     >
-                      <span className="text-7xl sm:text-8xl font-black bg-gradient-to-br from-cyan-300 via-violet-300 to-pink-300 bg-clip-text text-transparent">
-                        AM
-                      </span>
+                      <img
+                        src={getImageAsset("profile.jpg")}
+                        alt="Antton Mikhael"
+                        className="w-full h-full object-cover"
+                      />
                     </div>
                   </div>
                 </div>
@@ -1340,20 +1371,47 @@ export default function App() {
                     {specialtyCerts.map((cert, i) => (
                       <div
                         key={cert.file}
-                        className={`rounded-xl border ${cfg.borderColor} bg-white/4 p-4 flex items-start gap-3 hover:bg-white/7 hover:border-white/20 transition-all duration-200`}
+                        className={`rounded-xl border ${cfg.borderColor} bg-white/4 p-4 hover:bg-white/7 hover:border-white/20 transition-all duration-200`}
                         style={{ animationDelay: `${i * 40}ms` }}
                       >
-                        <div
-                          className={`flex-shrink-0 w-9 h-9 rounded-lg bg-gradient-to-br ${
-                            ISSUER_COLORS[cert.issuer] || "from-slate-600 to-slate-700"
-                          } flex items-center justify-center`}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedCertificate(cert)}
+                          className="group w-full text-left"
+                          aria-label={`View ${cert.issuer} certificate`}
                         >
-                          <Award className="w-4 h-4 text-white" />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-xs text-slate-500 font-medium uppercase tracking-wide">{cert.issuer}</p>
-                          <p className="text-sm text-slate-200 font-medium leading-snug mt-0.5">{cert.name}</p>
-                        </div>
+                          <div className="relative mb-4 aspect-[4/3] overflow-hidden rounded-lg border border-white/10 bg-[#050d1a]">
+                            <img
+                              src={getImageAsset(cert.file)}
+                              alt={`${cert.issuer} certificate`}
+                              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                            />
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors duration-300 group-hover:bg-black/35">
+                              <span className="rounded-lg bg-black/70 px-4 py-2 text-xs font-semibold text-white opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+                                View Certificate
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-start gap-3">
+                            <div
+                              className={`flex-shrink-0 w-9 h-9 rounded-lg bg-gradient-to-br ${
+                                ISSUER_COLORS[cert.issuer] || "from-slate-600 to-slate-700"
+                              } flex items-center justify-center`}
+                            >
+                              <Award className="w-4 h-4 text-white" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs text-slate-500 font-medium uppercase tracking-wide">{cert.issuer}</p>
+                              <p className="text-sm text-slate-200 font-medium leading-snug mt-0.5">{cert.name}</p>
+                            </div>
+                          </div>
+
+                          <span className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-xs font-semibold text-cyan-300 transition-colors group-hover:bg-cyan-500/20">
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            View Certificate
+                          </span>
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -1573,6 +1631,52 @@ export default function App() {
           </div>
         </div>
       </footer>
+      {selectedCertificate && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-[#020817]/90 p-4 backdrop-blur-md"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${selectedCertificate.issuer} certificate`}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setSelectedCertificate(null);
+          }}
+        >
+          <div
+            className="relative flex max-h-[95vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-cyan-400/20 bg-[#071426] p-3 shadow-2xl shadow-cyan-950/50 sm:p-5"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setSelectedCertificate(null)}
+              aria-label="Close certificate"
+              className="absolute right-4 top-4 z-10 rounded-lg border border-white/10 bg-black/70 p-2 text-slate-300 transition-colors hover:bg-cyan-500 hover:text-slate-950"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <div className="min-h-0 overflow-auto rounded-xl bg-black/20">
+              <img
+                src={getImageAsset(selectedCertificate.file)}
+                alt={`${selectedCertificate.issuer} certificate`}
+                className="mx-auto max-h-[78vh] w-auto max-w-full object-contain"
+              />
+            </div>
+
+            <div className="px-2 pb-1 pt-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-cyan-400">
+                {selectedCertificate.specialty}
+              </p>
+              <h3 className="mt-1 text-lg font-bold text-white">
+                {selectedCertificate.name}
+              </h3>
+              <p className="mt-1 text-sm text-slate-400">
+                Issued by {selectedCertificate.issuer}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {cppDocumentsOpen && <CppDocumentsModal onClose={() => setCppDocumentsOpen(false)} />}
     </div>
   );
