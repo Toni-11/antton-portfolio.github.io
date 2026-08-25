@@ -91,10 +91,30 @@
   const CONTACT_INPUT_CLASS = 'w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder-slate-500 focus:border-cyan-500/50 focus:outline-none focus:ring-1 focus:ring-cyan-500/30 transition-all';
   const CONTACT_BUTTON_CLASS = 'w-full rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 py-3 text-sm font-semibold text-white shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:-translate-y-0.5 transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-none';
 
+  function updateContactSubmitButton(form) {
+    const button = form?.querySelector('button[type="submit"]');
+    if (!button) return;
+
+    let disabled = contactLoading;
+    if (contactStep === 1) disabled ||= !turnstileToken || !contactEmail.trim();
+    if (contactStep === 2) disabled ||= !/^\d{6}$/.test(contactOtp);
+    if (contactStep === 3) disabled ||= !contactName.trim() || !contactMessage.trim();
+
+    button.disabled = disabled;
+    button.textContent = contactStep === 1
+      ? (contactLoading ? 'Sending Verification Code...' : 'Continue')
+      : contactStep === 3
+        ? (contactLoading ? 'Sending Message...' : 'Send Message')
+        : 'Continue';
+  }
+
   window.onTurnstileSuccess = token => {
     turnstileToken = token || '';
     const form = document.querySelector('#contact form');
-    if (form) renderContactForm(form);
+    if (form) {
+      clearContactError(form);
+      updateContactSubmitButton(form);
+    }
   };
 
   function escapeHtml(value) {
@@ -179,6 +199,7 @@
     form.querySelector('[data-contact-success]')?.remove();
 
     if (contactStep === 1) {
+      removeTurnstile();
       form.innerHTML = `
         <div class="flex items-center gap-2 mb-6" data-contact-progress>
           ${[1, 2, 3].map(step => `
@@ -197,17 +218,20 @@
           <div class="cf-turnstile" data-sitekey="${TURNSTILE_SITE_KEY}" data-callback="onTurnstileSuccess"></div>
         </div>
 
-        <button type="submit" ${contactLoading || !turnstileToken ? 'disabled' : ''} class="${CONTACT_BUTTON_CLASS}">
-          ${contactLoading ? 'Sending Verification Code...' : 'Continue'}
-        </button>
+        <button type="submit" class="${CONTACT_BUTTON_CLASS}">Continue</button>
       `;
 
       const email = form.querySelector('#contact-email');
       email?.addEventListener('input', event => {
         contactEmail = event.target.value;
+        if (turnstileToken && window.turnstile?.reset && turnstileWidgetId !== null) {
+          try { window.turnstile.reset(turnstileWidgetId); } catch (_) {}
+        }
         turnstileToken = '';
+        updateContactSubmitButton(form);
       });
 
+      updateContactSubmitButton(form);
       if (window.turnstile?.render) {
         renderTurnstile(form);
       } else {
@@ -234,10 +258,7 @@
           <p class="mt-2 text-xs text-slate-500">The verification code must contain exactly 6 digits.</p>
         </div>
 
-        <button type="submit" ${contactLoading || !/^\d{6}$/.test(contactOtp) ? 'disabled' : ''} class="${CONTACT_BUTTON_CLASS}">
-          Continue
-        </button>
-
+        <button type="submit" class="${CONTACT_BUTTON_CLASS}">Continue</button>
         <button type="button" data-contact-back class="w-full rounded-xl border border-white/10 bg-white/5 py-2.5 text-sm font-medium text-slate-300 transition-all hover:bg-white/10 hover:text-white">Back</button>
       `;
 
@@ -245,12 +266,10 @@
       otp?.addEventListener('input', event => {
         contactOtp = event.target.value.replace(/\D/g, '').slice(0, 6);
         event.target.value = contactOtp;
-        renderContactForm(form);
-        const refreshed = form.querySelector('#contact-otp');
-        refreshed?.focus();
-        refreshed?.setSelectionRange(contactOtp.length, contactOtp.length);
+        updateContactSubmitButton(form);
       });
 
+      updateContactSubmitButton(form);
       form.querySelector('[data-contact-back]')?.addEventListener('click', () => {
         contactStep = 1;
         turnstileToken = '';
@@ -283,33 +302,25 @@
         <input id="contact-website" name="website" type="text" tabindex="-1" autocomplete="off" value="${escapeHtml(contactHoneypot)}" />
       </div>
 
-      <button type="submit" ${contactLoading || !contactName.trim() || !contactMessage.trim() ? 'disabled' : ''} class="${CONTACT_BUTTON_CLASS}">
-        ${contactLoading ? 'Sending Message...' : 'Send Message'}
-      </button>
-
+      <button type="submit" class="${CONTACT_BUTTON_CLASS}">Send Message</button>
       <button type="button" data-contact-back class="w-full rounded-xl border border-white/10 bg-white/5 py-2.5 text-sm font-medium text-slate-300 transition-all hover:bg-white/10 hover:text-white">Back</button>
     `;
 
     form.querySelector('#contact-name')?.addEventListener('input', event => {
       contactName = event.target.value;
-      renderContactForm(form);
-      const input = form.querySelector('#contact-name');
-      input?.focus();
-      input?.setSelectionRange(contactName.length, contactName.length);
+      updateContactSubmitButton(form);
     });
 
     form.querySelector('#contact-message')?.addEventListener('input', event => {
       contactMessage = event.target.value;
-      renderContactForm(form);
-      const textarea = form.querySelector('#contact-message');
-      textarea?.focus();
-      textarea?.setSelectionRange(contactMessage.length, contactMessage.length);
+      updateContactSubmitButton(form);
     });
 
     form.querySelector('#contact-website')?.addEventListener('input', event => {
       contactHoneypot = event.target.value;
     });
 
+    updateContactSubmitButton(form);
     form.querySelector('[data-contact-back]')?.addEventListener('click', () => {
       contactStep = 2;
       renderContactForm(form);
@@ -342,7 +353,7 @@
       }
 
       contactLoading = true;
-      renderContactForm(form);
+      updateContactSubmitButton(form);
 
       try {
         const response = await fetch(`${CONTACT_API_URL}/api/send-otp`, {
@@ -356,10 +367,11 @@
         contactStep = 2;
         contactOtp = '';
         contactLoading = false;
+        removeTurnstile();
         renderContactForm(form);
       } catch (error) {
         contactLoading = false;
-        renderContactForm(form);
+        updateContactSubmitButton(form);
         setContactError(form, error instanceof Error ? error.message : 'Unable to send the verification code. Please try again.');
       }
       return;
@@ -393,7 +405,7 @@
     }
 
     contactLoading = true;
-    renderContactForm(form);
+    updateContactSubmitButton(form);
 
     try {
       const response = await fetch(`${CONTACT_API_URL}/api/send-message`, {
@@ -422,12 +434,12 @@
         contactHoneypot = '';
         turnstileToken = '';
         removeTurnstile();
-        clearTimeout(contactSuccessTimer);
+        if (contactSuccessTimer) clearTimeout(contactSuccessTimer);
         renderContactForm(form);
       }, 3000);
     } catch (error) {
       contactLoading = false;
-      renderContactForm(form);
+      updateContactSubmitButton(form);
       setContactError(form, error instanceof Error ? error.message : 'Unable to send your message. Please try again.');
     }
   }
