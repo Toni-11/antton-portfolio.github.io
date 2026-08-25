@@ -1,7 +1,8 @@
 @import "tailwindcss";
 
-/* Keep the 4×6 profile portrait fully visible inside its circular frame. */
+/* Keep the 4×6 profile portrait fully visible with a white background. */
 img[alt="Antton Mikhael"] {
   object-fit: contain !important;
   object-position: center center !important;
+  background: #ffffff !important;
 }
