@@ -1,8 +1,6 @@
 (() => {
   const BASE = './';
-  const certificates = [
-    'cert-hplife-1.jpg','cert-hplife-2.jpg','cert-ibm-1.jpg','cert-ieee.jpg','cert-iti-1.jpg','cert-iti-2.jpg','cert-iti-3.jpg','cert-itlegend.jpg','cert-nti.jpg','cert-sololearn-1.jpg','cert-sololearn-2.jpg','cert-sololearn-3.jpg','cert-tuwaiq.jpg'
-  ];
+  const certificates = ['cert-hplife-1.jpg','cert-hplife-2.jpg','cert-ibm-1.jpg','cert-ieee.jpg','cert-iti-1.jpg','cert-iti-2.jpg','cert-iti-3.jpg','cert-itlegend.jpg','cert-nti.jpg','cert-sololearn-1.jpg','cert-sololearn-2.jpg','cert-sololearn-3.jpg','cert-tuwaiq.jpg'];
 
   function addProfileImage() {
     const section = document.getElementById('home');
@@ -51,39 +49,171 @@
 
   const CONTACT_API_URL = 'https://contact-api.toni-11.workers.dev';
   const TURNSTILE_SITE_KEY = '0x4AAAAAAEaPM7zSCZZp-rYC';
-  let contactStep = 1, contactEmail = '', contactOtp = '', contactName = '', contactMessage = '', contactHoneypot = '', turnstileToken = '', turnstileWidgetId = null, contactLoading = false, contactSuccessTimer = null;
+  let contactStep = 1;
+  let contactEmail = '';
+  let contactOtp = '';
+  let verificationToken = '';
+  let contactName = '';
+  let contactMessage = '';
+  let contactHoneypot = '';
+  let turnstileToken = '';
+  let turnstileWidgetId = null;
+  let contactLoading = false;
+  let contactSuccessTimer = null;
+
   const INPUT = 'w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder-slate-500 focus:border-cyan-500/50 focus:outline-none focus:ring-1 focus:ring-cyan-500/30 transition-all';
   const BUTTON = 'w-full rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 py-3 text-sm font-semibold text-white shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:-translate-y-0.5 transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-none';
 
   const escapeHtml = value => String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
-  async function apiError(response) { try { const data = await response.json(); return typeof data?.message === 'string' ? data.message : typeof data?.error === 'string' ? data.error : 'Something went wrong. Please try again.'; } catch { return 'Something went wrong. Please try again.'; } }
-  function error(form, message) { let el=form.querySelector('[data-contact-error]'); if(!el){el=document.createElement('div');el.dataset.contactError='true';el.className='rounded-xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-300';el.setAttribute('role','alert');form.appendChild(el);} el.textContent=message; }
-  function clearError(form){form.querySelector('[data-contact-error]')?.remove();}
-  function success(form,message){let el=form.querySelector('[data-contact-success]');if(!el){el=document.createElement('div');el.dataset.contactSuccess='true';el.className='rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300';el.setAttribute('role','status');form.appendChild(el);}el.textContent=message;}
-  function updateButton(form){const b=form.querySelector('button[type="submit"]');if(!b)return;let d=contactLoading;if(contactStep===1)d ||= !contactEmail.trim() || !turnstileToken;if(contactStep===2)d ||= !/^\d{6}$/.test(contactOtp);if(contactStep===3)d ||= !contactName.trim() || !contactMessage.trim();b.disabled=d;b.textContent=contactStep===1?(contactLoading?'Sending Verification Code...':'Continue'):contactStep===3?(contactLoading?'Sending Message...':'Send Message'):'Continue';}
+  async function apiError(response) {
+    try {
+      const data = await response.json();
+      return typeof data?.message === 'string' ? data.message : 'Something went wrong. Please try again.';
+    } catch { return 'Something went wrong. Please try again.'; }
+  }
+  function error(form, message) {
+    let el = form.querySelector('[data-contact-error]');
+    if (!el) { el = document.createElement('div'); el.dataset.contactError = 'true'; el.className = 'rounded-xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-300'; el.setAttribute('role','alert'); form.appendChild(el); }
+    el.textContent = message;
+  }
+  function clearError(form) { form.querySelector('[data-contact-error]')?.remove(); }
+  function success(form, message) {
+    let el = form.querySelector('[data-contact-success]');
+    if (!el) { el = document.createElement('div'); el.dataset.contactSuccess = 'true'; el.className = 'rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300'; el.setAttribute('role','status'); form.appendChild(el); }
+    el.textContent = message;
+  }
+  function updateButton(form) {
+    const button = form.querySelector('button[type="submit"]');
+    if (!button) return;
+    let disabled = contactLoading;
+    if (contactStep === 1) disabled ||= !contactEmail.trim() || !turnstileToken;
+    if (contactStep === 2) disabled ||= !/^\d{6}$/.test(contactOtp);
+    if (contactStep === 3) disabled ||= !contactName.trim() || !contactMessage.trim();
+    button.disabled = disabled;
+    button.textContent = contactStep === 1 ? (contactLoading ? 'Sending Verification Code...' : 'Continue') : contactStep === 2 ? (contactLoading ? 'Verifying...' : 'Verify Email') : (contactLoading ? 'Sending Message...' : 'Send Message');
+  }
+  function resetTurnstile() { if (window.turnstile && turnstileWidgetId !== null) { try { window.turnstile.reset(turnstileWidgetId); } catch {} } turnstileToken = ''; }
+  function removeTurnstile() { if (window.turnstile && turnstileWidgetId !== null && typeof window.turnstile.remove === 'function') { try { window.turnstile.remove(turnstileWidgetId); } catch {} } turnstileWidgetId = null; turnstileToken = ''; }
 
-  function resetTurnstile(){ if(window.turnstile && turnstileWidgetId!==null){try{window.turnstile.reset(turnstileWidgetId);}catch{}} turnstileToken=''; }
-  function removeTurnstile(){if(window.turnstile && turnstileWidgetId!==null && typeof window.turnstile.remove==='function'){try{window.turnstile.remove(turnstileWidgetId);}catch{}}turnstileWidgetId=null;turnstileToken='';}
-  window.onTurnstileSuccess = token => { turnstileToken=token||''; const form=document.querySelector('#contact form'); if(form){clearError(form);updateButton(form);} };
-
-  function renderTurnstile(form){const host=form.querySelector('[data-turnstile-host]');if(!host||turnstileWidgetId!==null)return;if(!window.turnstile||typeof window.turnstile.render!=='function'){setTimeout(()=>renderTurnstile(form),250);return;}const target=host.querySelector('.cf-turnstile');if(!target)return;turnstileWidgetId=window.turnstile.render(target,{sitekey:TURNSTILE_SITE_KEY,callback:token=>{turnstileToken=token||'';clearError(form);updateButton(form);},'expired-callback':()=>{turnstileToken='';updateButton(form);},'error-callback':()=>{turnstileToken='';error(form,'Security verification failed. Please try again.');updateButton(form);}});}
-
-  function progress(active){return `<div class="flex items-center gap-2 mb-6">${[1,2,3].map(s=>`<div class="flex items-center gap-2 flex-1"><div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${s<=active?'bg-gradient-to-r from-cyan-500 to-blue-600 text-white':'border border-white/10 bg-white/5 text-slate-500'}">${s}</div>${s<3?`<div class="h-px flex-1 ${s<active?'bg-cyan-500/60':'bg-white/10'}"></div>`:''}</div>`).join('')}</div>`;}
-
-  function render(form){if(!form||!form.closest('#contact'))return;clearError(form);form.querySelector('[data-contact-success]')?.remove();
-    if(contactStep===1){removeTurnstile();form.innerHTML=`${progress(1)}<div><label for="contact-email" class="block text-xs text-slate-400 mb-1.5 uppercase tracking-wide">Email Address</label><input id="contact-email" required type="email" class="${INPUT}" placeholder="john@example.com" autocomplete="email" value="${escapeHtml(contactEmail)}"></div><div class="rounded-xl border border-white/10 bg-white/[0.03] p-3 overflow-hidden" data-turnstile-host><div class="cf-turnstile"></div></div><button type="submit" class="${BUTTON}">Continue</button>`;
-      form.querySelector('#contact-email').addEventListener('input',e=>{contactEmail=e.target.value;resetTurnstile();updateButton(form);});updateButton(form);renderTurnstile(form);return;}
-    if(contactStep===2){removeTurnstile();form.innerHTML=`${progress(2)}<div><label for="contact-otp" class="block text-xs text-slate-400 mb-1.5 uppercase tracking-wide">Verification Code</label><p class="mb-3 text-sm text-slate-400">Enter the 6-digit code sent to <span class="text-cyan-400">${escapeHtml(contactEmail)}</span>.</p><input id="contact-otp" required type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" class="${INPUT} text-center text-lg font-semibold tracking-[0.35em]" placeholder="000000" autocomplete="one-time-code" value="${escapeHtml(contactOtp)}"><p class="mt-2 text-xs text-slate-500">The verification code must contain exactly 6 digits.</p></div><button type="submit" class="${BUTTON}">Continue</button><button type="button" data-back class="w-full rounded-xl border border-white/10 bg-white/5 py-2.5 text-sm font-medium text-slate-300 transition-all hover:bg-white/10 hover:text-white">Back</button>`;const otp=form.querySelector('#contact-otp');otp.addEventListener('input',e=>{contactOtp=e.target.value.replace(/\D/g,'').slice(0,6);e.target.value=contactOtp;updateButton(form);});form.querySelector('[data-back]').onclick=()=>{contactStep=1;render(form);};updateButton(form);return;}
-    removeTurnstile();form.innerHTML=`${progress(3)}<div><label for="contact-name" class="block text-xs text-slate-400 mb-1.5 uppercase tracking-wide">Your Name</label><input id="contact-name" required type="text" class="${INPUT}" placeholder="John Doe" autocomplete="name" value="${escapeHtml(contactName)}"></div><div><label for="contact-message" class="block text-xs text-slate-400 mb-1.5 uppercase tracking-wide">Message</label><textarea id="contact-message" required rows="5" class="${INPUT} resize-none" placeholder="Tell me about an opportunity, project, or collaboration...">${escapeHtml(contactMessage)}</textarea></div><div class="absolute left-[-9999px] top-auto h-px w-px overflow-hidden" aria-hidden="true"><label for="contact-website">Website</label><input id="contact-website" type="text" tabindex="-1" autocomplete="off" value="${escapeHtml(contactHoneypot)}"></div><button type="submit" class="${BUTTON}">Send Message</button><button type="button" data-back class="w-full rounded-xl border border-white/10 bg-white/5 py-2.5 text-sm font-medium text-slate-300 transition-all hover:bg-white/10 hover:text-white">Back</button>`;form.querySelector('#contact-name').oninput=e=>{contactName=e.target.value;updateButton(form);};form.querySelector('#contact-message').oninput=e=>{contactMessage=e.target.value;updateButton(form);};form.querySelector('#contact-website').oninput=e=>contactHoneypot=e.target.value;form.querySelector('[data-back]').onclick=()=>{contactStep=2;render(form);};updateButton(form);
+  function renderTurnstile(form) {
+    const host = form.querySelector('[data-turnstile-host]');
+    if (!host || turnstileWidgetId !== null) return;
+    if (!window.turnstile || typeof window.turnstile.render !== 'function') { setTimeout(() => renderTurnstile(form), 250); return; }
+    const target = host.querySelector('.cf-turnstile');
+    if (!target) return;
+    turnstileWidgetId = window.turnstile.render(target, {
+      sitekey: TURNSTILE_SITE_KEY,
+      callback: token => { turnstileToken = token || ''; clearError(form); updateButton(form); },
+      'expired-callback': () => { turnstileToken = ''; updateButton(form); },
+      'error-callback': () => { turnstileToken = ''; error(form, 'Security verification failed. Please try again.'); updateButton(form); }
+    });
   }
 
-  async function submit(e){const form=e.currentTarget;if(!(form instanceof HTMLFormElement)||!form.closest('#contact'))return;e.preventDefault();e.stopPropagation();if(contactLoading)return;clearError(form);
-    if(contactStep===1){contactEmail=form.querySelector('#contact-email')?.value.trim()||'';if(!contactEmail){error(form,'Please enter your email address.');return;}if(!turnstileToken){error(form,'Please complete the security verification.');return;}contactLoading=true;updateButton(form);try{const r=await fetch(`${CONTACT_API_URL}/api/send-otp`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:contactEmail,turnstileToken})});if(!r.ok)throw new Error(await apiError(r));contactLoading=false;contactOtp='';contactStep=2;render(form);}catch(err){contactLoading=false;updateButton(form);error(form,err instanceof Error?err.message:'Unable to send the verification code. Please try again.');}return;}
-    if(contactStep===2){contactOtp=form.querySelector('#contact-otp')?.value.trim()||'';if(!/^\d{6}$/.test(contactOtp)){error(form,'Please enter the 6-digit verification code.');return;}contactStep=3;render(form);return;}
-    contactName=form.querySelector('#contact-name')?.value.trim()||'';contactMessage=form.querySelector('#contact-message')?.value.trim()||'';contactHoneypot=form.querySelector('#contact-website')?.value||'';if(!contactName){error(form,'Please enter your name.');return;}if(!contactMessage){error(form,'Please enter your message.');return;}contactLoading=true;updateButton(form);try{const r=await fetch(`${CONTACT_API_URL}/api/send-message`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:contactName,email:contactEmail,message:contactMessage,otp:contactOtp,honeypot:contactHoneypot})});if(!r.ok)throw new Error(await apiError(r));contactLoading=false;success(form,'Your message has been sent successfully. Thank you for reaching out!');contactSuccessTimer=setTimeout(()=>{contactStep=1;contactEmail=contactOtp=contactName=contactMessage=contactHoneypot='';removeTurnstile();render(form);},3000);}catch(err){contactLoading=false;updateButton(form);error(form,err instanceof Error?err.message:'Unable to send your message. Please try again.');}
+  function progress(active) {
+    return `<div class="flex items-center gap-2 mb-6">${[1,2,3].map(step => `<div class="flex items-center gap-2 flex-1"><div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${step <= active ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white' : 'border border-white/10 bg-white/5 text-slate-500'}">${step}</div>${step < 3 ? `<div class="h-px flex-1 ${step < active ? 'bg-cyan-500/60' : 'bg-white/10'}"></div>` : ''}</div>`).join('')}</div>`;
   }
 
-  function addContactForm(){const section=document.getElementById('contact');if(!section)return;const form=section.querySelector('form');if(!form||form.dataset.contactReady==='true')return;form.dataset.contactReady='true';form.addEventListener('submit',submit,true);render(form);}
-  function run(){addProfileImage();addCertificateButtons();addContactForm();}
-  run();const observer=new MutationObserver(run);observer.observe(document.getElementById('root')||document.body,{childList:true,subtree:true});
+  function render(form) {
+    if (!form || !form.closest('#contact')) return;
+    clearError(form);
+    form.querySelector('[data-contact-success]')?.remove();
+
+    if (contactStep === 1) {
+      removeTurnstile();
+      form.innerHTML = `${progress(1)}<div><label for="contact-email" class="block text-xs text-slate-400 mb-1.5 uppercase tracking-wide">Email Address</label><input id="contact-email" required type="email" class="${INPUT}" placeholder="john@example.com" autocomplete="email" value="${escapeHtml(contactEmail)}"></div><div class="rounded-xl border border-white/10 bg-white/[0.03] p-3 overflow-hidden" data-turnstile-host><div class="cf-turnstile"></div></div><button type="submit" class="${BUTTON}">Continue</button>`;
+      form.querySelector('#contact-email').addEventListener('input', event => { contactEmail = event.target.value; resetTurnstile(); updateButton(form); });
+      updateButton(form); renderTurnstile(form); return;
+    }
+
+    if (contactStep === 2) {
+      removeTurnstile();
+      form.innerHTML = `${progress(2)}<div><label for="contact-otp" class="block text-xs text-slate-400 mb-1.5 uppercase tracking-wide">Verification Code</label><p class="mb-3 text-sm text-slate-400">Enter the 6-digit code sent to <span class="text-cyan-400">${escapeHtml(contactEmail)}</span>.</p><input id="contact-otp" required type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" class="${INPUT} text-center text-lg font-semibold tracking-[0.35em]" placeholder="000000" autocomplete="one-time-code" value="${escapeHtml(contactOtp)}"><p class="mt-2 text-xs text-slate-500">The code expires after 10 minutes.</p></div><button type="submit" class="${BUTTON}">Verify Email</button><button type="button" data-back class="w-full rounded-xl border border-white/10 bg-white/5 py-2.5 text-sm font-medium text-slate-300 transition-all hover:bg-white/10 hover:text-white">Back</button>`;
+      const otp = form.querySelector('#contact-otp');
+      otp.addEventListener('input', event => { contactOtp = event.target.value.replace(/\D/g,'').slice(0,6); event.target.value = contactOtp; updateButton(form); });
+      form.querySelector('[data-back]').onclick = () => { contactStep = 1; render(form); };
+      updateButton(form); return;
+    }
+
+    removeTurnstile();
+    form.innerHTML = `${progress(3)}<div><label for="contact-name" class="block text-xs text-slate-400 mb-1.5 uppercase tracking-wide">Your Name</label><input id="contact-name" required type="text" class="${INPUT}" placeholder="John Doe" autocomplete="name" value="${escapeHtml(contactName)}"></div><div><label for="contact-message" class="block text-xs text-slate-400 mb-1.5 uppercase tracking-wide">Message</label><textarea id="contact-message" required rows="5" class="${INPUT} resize-none" placeholder="Tell me about an opportunity, project, or collaboration...">${escapeHtml(contactMessage)}</textarea></div><div class="absolute left-[-9999px] top-auto h-px w-px overflow-hidden" aria-hidden="true"><label for="contact-website">Website</label><input id="contact-website" type="text" tabindex="-1" autocomplete="off" value="${escapeHtml(contactHoneypot)}"></div><button type="submit" class="${BUTTON}">Send Message</button><button type="button" data-back class="w-full rounded-xl border border-white/10 bg-white/5 py-2.5 text-sm font-medium text-slate-300 transition-all hover:bg-white/10 hover:text-white">Back</button>`;
+    form.querySelector('#contact-name').oninput = event => { contactName = event.target.value; updateButton(form); };
+    form.querySelector('#contact-message').oninput = event => { contactMessage = event.target.value; updateButton(form); };
+    form.querySelector('#contact-website').oninput = event => { contactHoneypot = event.target.value; };
+    form.querySelector('[data-back]').onclick = () => { contactStep = 2; render(form); };
+    updateButton(form);
+  }
+
+  async function submit(event) {
+    const form = event.currentTarget;
+    if (!(form instanceof HTMLFormElement) || !form.closest('#contact')) return;
+    event.preventDefault(); event.stopPropagation();
+    if (contactLoading) return;
+    clearError(form);
+
+    if (contactStep === 1) {
+      contactEmail = form.querySelector('#contact-email')?.value.trim() || '';
+      if (!contactEmail) return error(form, 'Please enter your email address.');
+      if (!turnstileToken) return error(form, 'Please complete the security verification.');
+      contactLoading = true; updateButton(form);
+      try {
+        const response = await fetch(`${CONTACT_API_URL}/api/send-otp`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: contactEmail, turnstileToken }) });
+        if (!response.ok) throw new Error(await apiError(response));
+        contactLoading = false; contactOtp = ''; verificationToken = ''; contactStep = 2; render(form);
+      } catch (err) {
+        contactLoading = false; updateButton(form); error(form, err instanceof Error ? err.message : 'Unable to send the verification code. Please try again.');
+      }
+      return;
+    }
+
+    if (contactStep === 2) {
+      contactOtp = form.querySelector('#contact-otp')?.value.trim() || '';
+      if (!/^\d{6}$/.test(contactOtp)) return error(form, 'Please enter the 6-digit verification code.');
+      contactLoading = true; updateButton(form);
+      try {
+        const response = await fetch(`${CONTACT_API_URL}/api/verify-otp`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: contactEmail, otp: contactOtp }) });
+        if (!response.ok) throw new Error(await apiError(response));
+        const data = await response.json();
+        if (!data?.success || !data?.verificationToken) throw new Error(data?.message || 'Email verification failed.');
+        verificationToken = data.verificationToken;
+        contactLoading = false; contactStep = 3; render(form);
+      } catch (err) {
+        contactLoading = false; updateButton(form); error(form, err instanceof Error ? err.message : 'Unable to verify your email. Please try again.');
+      }
+      return;
+    }
+
+    contactName = form.querySelector('#contact-name')?.value.trim() || '';
+    contactMessage = form.querySelector('#contact-message')?.value.trim() || '';
+    contactHoneypot = form.querySelector('#contact-website')?.value || '';
+    if (!contactName) return error(form, 'Please enter your name.');
+    if (!contactMessage) return error(form, 'Please enter your message.');
+    if (!verificationToken) return error(form, 'Please verify your email first.');
+    if (contactHoneypot) return error(form, 'Unable to send this message.');
+
+    contactLoading = true; updateButton(form);
+    try {
+      const response = await fetch(`${CONTACT_API_URL}/api/send-message`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: contactName, message: contactMessage, verificationToken }) });
+      if (!response.ok) throw new Error(await apiError(response));
+      contactLoading = false;
+      success(form, 'Your message has been sent successfully. Thank you for reaching out!');
+      contactSuccessTimer = setTimeout(() => { contactStep = 1; contactEmail = ''; contactOtp = ''; verificationToken = ''; contactName = ''; contactMessage = ''; contactHoneypot = ''; removeTurnstile(); render(form); }, 3000);
+    } catch (err) {
+      contactLoading = false; updateButton(form); error(form, err instanceof Error ? err.message : 'Unable to send your message. Please try again.');
+    }
+  }
+
+  function addContactForm() {
+    const section = document.getElementById('contact');
+    if (!section) return;
+    const form = section.querySelector('form');
+    if (!form || form.dataset.contactReady === 'true') return;
+    form.dataset.contactReady = 'true';
+    form.addEventListener('submit', submit, true);
+    render(form);
+  }
+
+  function run() { addProfileImage(); addCertificateButtons(); addContactForm(); }
+  run();
+  const observer = new MutationObserver(run);
+  observer.observe(document.getElementById('root') || document.body, { childList: true, subtree: true });
 })();
