@@ -154,13 +154,29 @@
       contactEmail = form.querySelector('#contact-email')?.value.trim() || '';
       if (!contactEmail) return error(form, 'Please enter your email address.');
       if (!turnstileToken) return error(form, 'Please complete the security verification.');
-      contactLoading = true; updateButton(form);
+
+      const tokenForRequest = turnstileToken;
+      turnstileToken = '';
+      contactLoading = true;
+      updateButton(form);
+
       try {
-        const response = await fetch(`${CONTACT_API_URL}/api/send-otp`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: contactEmail, turnstileToken }) });
+        const response = await fetch(`${CONTACT_API_URL}/api/send-otp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: contactEmail, turnstileToken: tokenForRequest })
+        });
         if (!response.ok) throw new Error(await apiError(response));
-        contactLoading = false; contactOtp = ''; verificationToken = ''; contactStep = 2; render(form);
+        contactLoading = false;
+        contactOtp = '';
+        verificationToken = '';
+        contactStep = 2;
+        render(form);
       } catch (err) {
-        contactLoading = false; updateButton(form); error(form, err instanceof Error ? err.message : 'Unable to send the verification code. Please try again.');
+        contactLoading = false;
+        resetTurnstile();
+        updateButton(form);
+        error(form, err instanceof Error ? err.message : 'Unable to send the verification code. Please try again.');
       }
       return;
     }
